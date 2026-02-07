@@ -51,26 +51,8 @@ async function streamClaude({ messages, model, system, tools, signal, onText, on
   try {
     const stream = await anthropic.messages.stream(params, { signal });
 
-    // Track tool_use blocks as they stream in
-    let currentToolUse = null;
-    let toolUseJsonStr = '';
-
     stream.on('text', (text) => {
       onText(text);
-    });
-
-    stream.on('contentBlock', (block) => {
-      // Completed content block
-      if (block.type === 'tool_use' && onToolUse) {
-        onToolUse({
-          id: block.id,
-          name: block.name,
-          input: block.input
-        });
-      }
-      if (block.type === 'thinking' && onThinking) {
-        onThinking(block.thinking);
-      }
     });
 
     stream.on('error', (err) => {
@@ -79,7 +61,24 @@ async function streamClaude({ messages, model, system, tools, signal, onText, on
 
     const finalMessage = await stream.finalMessage();
 
-    if (finalMessage.usage && onUsage) {
+    // Extract tool_use and thinking blocks from finalMessage.content
+    // This is more reliable than stream events (contentBlock may not fire for tool_use)
+    if (finalMessage && finalMessage.content) {
+      for (const block of finalMessage.content) {
+        if (block.type === 'tool_use' && onToolUse) {
+          onToolUse({
+            id: block.id,
+            name: block.name,
+            input: block.input
+          });
+        }
+        if (block.type === 'thinking' && onThinking) {
+          onThinking(block.thinking);
+        }
+      }
+    }
+
+    if (finalMessage && finalMessage.usage && onUsage) {
       onUsage(finalMessage.usage);
     }
 

@@ -746,10 +746,8 @@ function handleWebSocket(ws) {
 
         // Check if Claude wants to use tools
         if (finalMessage.stop_reason === 'tool_use' && toolUseBlocks.length > 0) {
-          // Finish text part of the response (if any) before tool execution
-          if (fullResponseText) {
-            send({ type: 'response_pause', messageId });
-          }
+          // Finish text part of the response before tool execution
+          send({ type: 'response_pause', messageId });
 
           // Execute each tool
           const toolResults = [];

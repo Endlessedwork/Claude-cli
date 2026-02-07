@@ -15,8 +15,8 @@
   --text-dim: #565f89;
   --text-muted: #3b3f5c;
 
-  --accent-primary: #bb9af7;    /* Purple — Claude brand */
-  --accent-secondary: #7aa2f7;  /* Blue */
+  --accent-primary: #DA7756;    /* Terracotta — Claude brand */
+  --accent-secondary: #E8956A;  /* Warm orange light */
   --accent-green: #9ece6a;
   --accent-yellow: #e0af68;
   --accent-red: #f7768e;
@@ -80,8 +80,14 @@ html, body {
 }
 
 .logo {
+  display: flex;
+  align-items: center;
   color: var(--accent-primary);
-  font-size: 20px;
+}
+
+.logo svg {
+  width: 22px;
+  height: 22px;
 }
 
 .title {
@@ -551,7 +557,7 @@ html, body {
 
 .slash-menu-item.active .slash-menu-item-icon {
   border-color: var(--accent-primary);
-  background: rgba(187, 154, 247, 0.08);
+  background: rgba(218, 119, 86, 0.08);
 }
 
 .slash-menu-item-body {
@@ -623,7 +629,7 @@ html, body {
 
 .input-wrapper:focus-within {
   border-color: var(--accent-primary);
-  box-shadow: 0 0 0 1px rgba(187, 154, 247, 0.15);
+  box-shadow: 0 0 0 1px rgba(218, 119, 86, 0.15);
 }
 
 .input-prompt {
@@ -677,7 +683,7 @@ html, body {
 }
 
 .send-btn:hover {
-  background: rgba(187, 154, 247, 0.15);
+  background: rgba(218, 119, 86, 0.15);
 }
 
 .abort-btn {

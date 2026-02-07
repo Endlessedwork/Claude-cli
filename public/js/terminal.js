@@ -36,7 +36,7 @@ const Terminal = (() => {
     const header = document.createElement('div');
     header.className = 'message-header';
     header.innerHTML = `
-      <span class="role">◇ Claude</span>
+      <span class="role"><svg viewBox="0 0 28 28" fill="currentColor" width="12" height="12" style="width:12px;height:12px;vertical-align:-1px;margin-right:3px;"><path d="M14.0566 1.05664C13.3046 4.74563 12.1665 7.5461 10.5089 9.71885C8.92048 11.8011 6.63627 13.5768 3.33398 15.1649C6.53069 16.4858 8.88719 18.1927 10.5416 20.3452C12.2148 22.5227 13.3293 25.4161 14.0566 29.0566C14.7839 25.4161 15.8984 22.5227 17.5717 20.3452C19.2261 18.1927 21.5826 16.4858 24.7793 15.1649C21.477 13.5768 19.1928 11.8011 17.6044 9.71885C15.9468 7.5461 14.8087 4.74563 14.0566 1.05664Z"/></svg>Claude</span>
       <span class="timestamp">${formatTime()}</span>
     `;
 

@@ -242,6 +242,9 @@ const App = (() => {
     inputEl.value = '';
     inputEl.style.height = 'auto';
     inputEl.rows = 1;
+    if (SlashMenu.isOpen()) {
+      SlashMenu.close();
+    }
   }
 
   // Auto-resize textarea
@@ -249,10 +252,70 @@ const App = (() => {
     inputEl.style.height = 'auto';
     const newHeight = Math.min(inputEl.scrollHeight, 200);
     inputEl.style.height = newHeight + 'px';
+
+    // Slash command menu logic
+    handleSlashInput();
   });
+
+  function handleSlashInput() {
+    const text = inputEl.value;
+
+    // Check if input starts with / and is on the first line (no newlines before cursor)
+    const cursorPos = inputEl.selectionStart;
+    const textBeforeCursor = text.substring(0, cursorPos);
+
+    if (textBeforeCursor.startsWith('/') && !textBeforeCursor.includes('\n') && !textBeforeCursor.includes(' ')) {
+      // Extract the query after /
+      const query = textBeforeCursor.substring(1);
+      if (SlashMenu.isOpen()) {
+        SlashMenu.update(query);
+      } else {
+        SlashMenu.open(query);
+      }
+    } else {
+      if (SlashMenu.isOpen()) {
+        SlashMenu.close();
+      }
+    }
+  }
 
   // Keyboard handling
   inputEl.addEventListener('keydown', (e) => {
+    // ---- Slash menu navigation takes priority when open ----
+    if (SlashMenu.isOpen()) {
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        SlashMenu.moveUp();
+        return;
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        SlashMenu.moveDown();
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        const result = SlashMenu.selectCurrent();
+        if (result) {
+          inputEl.value = result.command;
+          // Move cursor to end
+          inputEl.selectionStart = inputEl.selectionEnd = inputEl.value.length;
+          // If command has args, don't send yet — let user type args
+          if (!result.keepOpen) {
+            handleSend();
+          }
+        }
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        SlashMenu.close();
+        return;
+      }
+    }
+
+    // ---- Normal keyboard handling ----
+
     // Enter to send (without shift)
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();

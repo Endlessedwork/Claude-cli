@@ -57,6 +57,15 @@
 
     <!-- Input Area -->
     <footer id="input-area">
+      <!-- Slash Command Dropdown -->
+      <div id="slash-menu" class="slash-menu hidden">
+        <div class="slash-menu-header">
+          <span class="slash-menu-title">Commands</span>
+          <span class="slash-menu-hint">↑↓ navigate · Enter select · Esc close</span>
+        </div>
+        <div id="slash-menu-list" class="slash-menu-list"></div>
+      </div>
+
       <div class="input-wrapper">
         <div class="input-prompt">
           <span class="prompt-symbol">❯</span>
@@ -108,6 +117,7 @@
 
   <script src="/js/markdown-renderer.js"></script>
   <script src="/js/terminal.js"></script>
+  <script src="/js/slash-menu.js"></script>
   <script src="/js/app.js"></script>
 </body>
 </html>

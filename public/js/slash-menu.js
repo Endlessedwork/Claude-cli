@@ -4,15 +4,16 @@
 
 const SlashMenu = (() => {
   // ========================================
-  // Command Definitions
+  // Command Definitions (matches Claude CLI)
   // ========================================
   const COMMANDS = [
     {
-      name: 'help',
-      icon: '?',
-      description: 'Show all available commands and shortcuts',
+      name: 'bug',
+      icon: '⚑',
+      description: 'Report a bug or send feedback',
       shortcut: '',
-      usage: '/help',
+      usage: '/bug <description>',
+      hasArgs: true,
     },
     {
       name: 'clear',
@@ -22,12 +23,104 @@ const SlashMenu = (() => {
       usage: '/clear',
     },
     {
+      name: 'compact',
+      icon: '⊟',
+      description: 'Compact conversation to save context window',
+      shortcut: '',
+      usage: '/compact',
+    },
+    {
+      name: 'config',
+      icon: '☰',
+      description: 'View or modify configuration',
+      shortcut: '',
+      usage: '/config',
+    },
+    {
+      name: 'cost',
+      icon: '⟡',
+      description: 'Show token usage and estimated cost',
+      shortcut: '',
+      usage: '/cost',
+    },
+    {
+      name: 'doctor',
+      icon: '✚',
+      description: 'Check health of API, connection and environment',
+      shortcut: '',
+      usage: '/doctor',
+    },
+    {
+      name: 'help',
+      icon: '?',
+      description: 'Show all available commands and shortcuts',
+      shortcut: '',
+      usage: '/help',
+    },
+    {
+      name: 'history',
+      icon: '↻',
+      description: 'Show conversation history summary',
+      shortcut: '',
+      usage: '/history',
+    },
+    {
+      name: 'init',
+      icon: '⊞',
+      description: 'Generate a CLAUDE.md system prompt template',
+      shortcut: '',
+      usage: '/init',
+    },
+    {
+      name: 'login',
+      icon: '⎆',
+      description: 'Set or switch Anthropic API key',
+      shortcut: '',
+      usage: '/login',
+    },
+    {
+      name: 'logout',
+      icon: '⏻',
+      description: 'Clear current API key and sign out',
+      shortcut: '',
+      usage: '/logout',
+    },
+    {
+      name: 'mcp',
+      icon: '⧉',
+      description: 'Manage MCP servers (list, add, remove)',
+      shortcut: '',
+      usage: '/mcp',
+    },
+    {
       name: 'model',
       icon: '◈',
-      description: 'Change or view current model',
+      description: 'Switch or view current model',
       shortcut: '',
       usage: '/model <model-name>',
       hasArgs: true,
+    },
+    {
+      name: 'permissions',
+      icon: '⛨',
+      description: 'View and manage tool permissions',
+      shortcut: '',
+      usage: '/permissions',
+    },
+    {
+      name: 'review',
+      icon: '⊕',
+      description: 'Review a PR by number or URL',
+      shortcut: '',
+      usage: '/review <pr-number-or-url>',
+      hasArgs: true,
+    },
+    {
+      name: 'status',
+      icon: '◉',
+      description: 'Show session and connection status',
+      shortcut: '',
+      usage: '/status',
     },
     {
       name: 'system',
@@ -38,32 +131,18 @@ const SlashMenu = (() => {
       hasArgs: true,
     },
     {
-      name: 'history',
-      icon: '↻',
-      description: 'Show conversation history summary',
+      name: 'terminal-setup',
+      icon: '⌨',
+      description: 'Show terminal integration and setup info',
       shortcut: '',
-      usage: '/history',
+      usage: '/terminal-setup',
     },
     {
-      name: 'compact',
-      icon: '⊟',
-      description: 'Compact conversation to save context window',
+      name: 'vim',
+      icon: '⌥',
+      description: 'Toggle vim mode for keyboard navigation',
       shortcut: '',
-      usage: '/compact',
-    },
-    {
-      name: 'cost',
-      icon: '⟡',
-      description: 'Show token usage and estimated cost report',
-      shortcut: '',
-      usage: '/cost',
-    },
-    {
-      name: 'config',
-      icon: '☰',
-      description: 'Show current configuration and settings',
-      shortcut: '',
-      usage: '/config',
+      usage: '/vim',
     },
   ];
 
@@ -102,7 +181,7 @@ const SlashMenu = (() => {
     activeIndex = 0;
 
     if (filteredCommands.length === 0) {
-      listEl.innerHTML = '<div class="slash-menu-empty">No matching commands</div>';
+      listEl.innerHTML = '<div class="slash-menu-empty">No matching commands — Enter to send as message</div>';
       return;
     }
 

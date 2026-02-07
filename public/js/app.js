@@ -11,6 +11,7 @@ const App = (() => {
   let commandHistory = [];
   let historyIndex = -1;
   let totalTokens = { input: 0, output: 0 };
+  let vimEnabled = false;
 
   // DOM Elements
   const inputEl = document.getElementById('user-input');
@@ -144,6 +145,14 @@ const App = (() => {
         modelBadge.textContent = msg.model;
         break;
 
+      case 'show_api_key_modal':
+        showApiKeyModal();
+        break;
+
+      case 'vim_mode':
+        vimEnabled = msg.enabled;
+        break;
+
       case 'request_cost_report':
         Terminal.addSystemMessage([
           '**Token Usage Report:**',
@@ -215,6 +224,21 @@ const App = (() => {
       historyIndex = commandHistory.length;
 
       Terminal.addUserMessage(text);
+
+      // Known built-in commands handled server-side instantly
+      const builtins = [
+        '/help','/clear','/compact','/config','/cost','/doctor',
+        '/history','/init','/login','/logout','/mcp','/model',
+        '/permissions','/status','/system','/terminal-setup','/vim','/bug'
+      ];
+      const isBuiltin = builtins.includes(command.toLowerCase());
+
+      // Unknown commands passthrough to Claude — show thinking
+      if (!isBuiltin) {
+        Terminal.showThinking();
+        setStatus('thinking', 'Thinking');
+      }
+
       send({ type: 'command', command, args });
       clearInput();
       return;

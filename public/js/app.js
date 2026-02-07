@@ -127,14 +127,17 @@ const App = (() => {
         break;
 
       case 'error':
+        Terminal.removeThinking();
         Terminal.addErrorMessage(msg.text);
         if (isStreaming) {
           isStreaming = false;
           currentMessage = null;
-          setStatus('error', 'Error');
           showSendBtn();
-          setTimeout(() => setStatus('idle', 'Ready'), 3000);
         }
+        setStatus('error', 'Error');
+        setTimeout(() => {
+          if (!isStreaming) setStatus('idle', 'Ready');
+        }, 3000);
         break;
 
       case 'clear_screen':
@@ -214,18 +217,13 @@ const App = (() => {
     const text = inputEl.value.trim();
     if (!text || isStreaming) return;
 
-    // Check for commands
+    // Check for slash commands
     if (text.startsWith('/')) {
       const parts = text.split(/\s+/);
       const command = parts[0];
       const args = parts.slice(1).join(' ');
 
-      commandHistory.push(text);
-      historyIndex = commandHistory.length;
-
-      Terminal.addUserMessage(text);
-
-      // Known built-in commands handled server-side instantly
+      // Known built-in commands — handled server-side instantly
       const builtins = [
         '/help','/clear','/compact','/config','/cost','/doctor',
         '/history','/init','/login','/logout','/mcp','/model',
@@ -233,13 +231,20 @@ const App = (() => {
       ];
       const isBuiltin = builtins.includes(command.toLowerCase());
 
-      // Unknown commands passthrough to Claude — show thinking
-      if (!isBuiltin) {
+      commandHistory.push(text);
+      historyIndex = commandHistory.length;
+      Terminal.addUserMessage(text);
+
+      if (isBuiltin) {
+        // Built-in: send as command for instant server handling
+        send({ type: 'command', command, args });
+      } else {
+        // Unknown command: send as regular chat to Claude (like real CLI)
         Terminal.showThinking();
         setStatus('thinking', 'Thinking');
+        send({ type: 'chat', content: text });
       }
 
-      send({ type: 'command', command, args });
       clearInput();
       return;
     }

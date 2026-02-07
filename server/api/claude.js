@@ -10,20 +10,34 @@ function getClient() {
   return client;
 }
 
-async function streamClaude({ messages, model, system, signal, onText, onThinking, onUsage, onError }) {
+/**
+ * Stream a Claude response with tool support.
+ *
+ * Callbacks:
+ *   onText(text)          — streaming text delta
+ *   onThinking(text)      — thinking block content
+ *   onToolUse(block)      — {id, name, input} when Claude requests a tool
+ *   onUsage(usage)        — usage stats from final message
+ *   onError(err)          — error during streaming
+ *
+ * Returns: finalMessage object (for tool loop control)
+ */
+async function streamClaude({ messages, model, system, tools, signal, onText, onThinking, onToolUse, onUsage, onError }) {
   const anthropic = getClient();
 
   const params = {
     model: model || 'claude-sonnet-4-20250514',
     max_tokens: 8192,
-    messages: messages.map(m => ({
-      role: m.role,
-      content: m.content
-    }))
+    messages: messages
   };
 
   if (system) {
     params.system = system;
+  }
+
+  // Add tools if provided
+  if (tools && tools.length > 0) {
+    params.tools = tools;
   }
 
   // Use extended thinking for opus models
@@ -37,22 +51,25 @@ async function streamClaude({ messages, model, system, signal, onText, onThinkin
   try {
     const stream = await anthropic.messages.stream(params, { signal });
 
+    // Track tool_use blocks as they stream in
+    let currentToolUse = null;
+    let toolUseJsonStr = '';
+
     stream.on('text', (text) => {
       onText(text);
     });
 
-    stream.on('message', (message) => {
-      if (message.usage) {
-        onUsage(message.usage);
+    stream.on('contentBlock', (block) => {
+      // Completed content block
+      if (block.type === 'tool_use' && onToolUse) {
+        onToolUse({
+          id: block.id,
+          name: block.name,
+          input: block.input
+        });
       }
-
-      // Handle thinking blocks
-      if (message.content) {
-        for (const block of message.content) {
-          if (block.type === 'thinking' && onThinking) {
-            onThinking(block.thinking);
-          }
-        }
+      if (block.type === 'thinking' && onThinking) {
+        onThinking(block.thinking);
       }
     });
 
@@ -60,12 +77,19 @@ async function streamClaude({ messages, model, system, signal, onText, onThinkin
       onError(err);
     });
 
-    await stream.finalMessage();
+    const finalMessage = await stream.finalMessage();
+
+    if (finalMessage.usage && onUsage) {
+      onUsage(finalMessage.usage);
+    }
+
+    return finalMessage;
   } catch (err) {
     if (err.name === 'AbortError') {
       throw err;
     }
     onError(err);
+    return null;
   }
 }
 

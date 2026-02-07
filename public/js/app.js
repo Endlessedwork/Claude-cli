@@ -91,6 +91,20 @@ const App = (() => {
         Terminal.addThinkingBlock(msg.content);
         break;
 
+      case 'response_pause':
+        // Claude paused text streaming to execute tools
+        if (currentMessage) {
+          currentMessage.finish();
+          currentMessage = null;
+        }
+        break;
+
+      case 'response_continue':
+        // Claude is continuing after tool execution
+        setStatus('streaming', 'Generating');
+        currentMessage = Terminal.createAssistantMessage();
+        break;
+
       case 'response_end':
         if (currentMessage) {
           currentMessage.finish();
@@ -122,6 +136,69 @@ const App = (() => {
         // Already handled by response_aborted
         break;
 
+      // ========================================
+      // Tool Messages
+      // ========================================
+
+      case 'tool_use':
+        // Claude wants to use a tool — show it in UI
+        if (currentMessage) {
+          currentMessage.finish();
+          currentMessage = null;
+        }
+        Terminal.addToolUseBlock(msg.toolCallId, msg.toolName, msg.description, msg.input);
+        setStatus('streaming', `Using ${msg.toolName}`);
+        break;
+
+      case 'tool_executing':
+        // Tool is being executed
+        Terminal.updateToolBlockStatus(msg.toolCallId, 'executing');
+        setStatus('streaming', `Running ${msg.toolName}...`);
+        break;
+
+      case 'tool_result':
+        // Tool execution completed
+        Terminal.updateToolBlockStatus(msg.toolCallId, msg.status);
+        if (msg.result) {
+          Terminal.updateToolBlockResult(msg.toolCallId, msg.result, msg.status === 'error');
+        }
+        break;
+
+      case 'permission_request':
+        // Server is asking for permission to run a tool
+        if (currentMessage) {
+          currentMessage.finish();
+          currentMessage = null;
+        }
+        Terminal.addPermissionRequest(
+          msg.toolCallId,
+          msg.toolName,
+          msg.input,
+          (alwaysAllow) => {
+            send({
+              type: 'permission_response',
+              toolCallId: msg.toolCallId,
+              toolName: msg.toolName,
+              approved: true,
+              alwaysAllow
+            });
+          },
+          () => {
+            send({
+              type: 'permission_response',
+              toolCallId: msg.toolCallId,
+              toolName: msg.toolName,
+              approved: false
+            });
+          }
+        );
+        setStatus('thinking', 'Awaiting Permission');
+        break;
+
+      // ========================================
+      // System Messages
+      // ========================================
+
       case 'system':
         Terminal.addSystemMessage(msg.text);
         break;
@@ -130,8 +207,11 @@ const App = (() => {
         Terminal.removeThinking();
         Terminal.addErrorMessage(msg.text);
         if (isStreaming) {
+          if (currentMessage) {
+            currentMessage.finish();
+            currentMessage = null;
+          }
           isStreaming = false;
-          currentMessage = null;
           showSendBtn();
         }
         setStatus('error', 'Error');

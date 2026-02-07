@@ -1,4 +1,6 @@
 const { streamClaude } = require('./api/claude');
+const { tools } = require('./tools/definitions');
+const { executeTool } = require('./tools/executor');
 const { v4: uuidv4 } = require('uuid');
 
 function handleWebSocket(ws) {
@@ -11,9 +13,12 @@ function handleWebSocket(ws) {
   let vimMode = false;
   let mcpServers = [];
   let permissions = {
-    autoApprove: ['Read', 'Glob', 'Grep', 'WebFetch'],
-    requireApproval: ['Write', 'Edit', 'Bash', 'NotebookEdit'],
+    autoApprove: ['Read', 'Glob', 'Grep', 'LS'],
+    requireApproval: ['Write', 'Edit', 'Bash'],
   };
+
+  // Pending permission requests (tool_call_id -> resolve callback)
+  let pendingPermissions = new Map();
 
   ws.send(JSON.stringify({
     type: 'session',
@@ -39,6 +44,9 @@ function handleWebSocket(ws) {
       case 'abort':
         handleAbort();
         break;
+      case 'permission_response':
+        handlePermissionResponse(msg);
+        break;
       case 'set_api_key':
         process.env.ANTHROPIC_API_KEY = msg.apiKey;
         send({ type: 'system', text: 'API key updated.' });
@@ -60,6 +68,11 @@ function handleWebSocket(ws) {
 
   ws.on('close', () => {
     if (abortController) abortController.abort();
+    // Reject all pending permissions
+    for (const [id, resolver] of pendingPermissions) {
+      resolver.reject('disconnected');
+    }
+    pendingPermissions.clear();
   });
 
   function send(data) {
@@ -74,6 +87,48 @@ function handleWebSocket(ws) {
       abortController = null;
       send({ type: 'abort_ack' });
     }
+  }
+
+  function handlePermissionResponse(msg) {
+    const resolver = pendingPermissions.get(msg.toolCallId);
+    if (resolver) {
+      pendingPermissions.delete(msg.toolCallId);
+      if (msg.approved) {
+        // If user chose "Always Allow", add to autoApprove
+        if (msg.alwaysAllow && msg.toolName) {
+          permissions.requireApproval = permissions.requireApproval.filter(t => t !== msg.toolName);
+          if (!permissions.autoApprove.includes(msg.toolName)) {
+            permissions.autoApprove.push(msg.toolName);
+          }
+          send({ type: 'system', text: `**${msg.toolName}** is now auto-approved for this session.` });
+        }
+        resolver.resolve(true);
+      } else {
+        resolver.resolve(false);
+      }
+    }
+  }
+
+  // ========================================
+  // Permission Check
+  // ========================================
+
+  async function checkPermission(toolName, toolCallId, input) {
+    // Auto-approve if in autoApprove list
+    if (permissions.autoApprove.includes(toolName)) {
+      return true;
+    }
+
+    // Ask user for permission via WebSocket
+    return new Promise((resolve, reject) => {
+      pendingPermissions.set(toolCallId, { resolve, reject });
+      send({
+        type: 'permission_request',
+        toolCallId,
+        toolName,
+        input
+      });
+    });
   }
 
   // ========================================
@@ -147,6 +202,18 @@ function handleWebSocket(ws) {
         '',
         '*Unrecognized commands are sent to Claude as a message.*',
         '',
+        '**Available Tools:**',
+        '',
+        '| Tool | Permission |',
+        '|------|-----------|',
+        '| Read | Auto-approved |',
+        '| Write | Requires approval |',
+        '| Edit | Requires approval |',
+        '| Bash | Requires approval |',
+        '| Glob | Auto-approved |',
+        '| Grep | Auto-approved |',
+        '| LS | Auto-approved |',
+        '',
         '**Keyboard Shortcuts:**',
         '',
         '| Shortcut | Action |',
@@ -211,10 +278,17 @@ function handleWebSocket(ws) {
     }
     const summary = conversationHistory.map((m, i) => {
       const role = m.role === 'user' ? 'You' : 'Claude';
-      const preview = typeof m.content === 'string'
-        ? m.content.substring(0, 80)
-        : '[complex content]';
-      return `${i + 1}. **${role}**: ${preview}${m.content?.length > 80 ? '...' : ''}`;
+      const content = m.content;
+      let preview = '';
+      if (typeof content === 'string') {
+        preview = content.substring(0, 80);
+      } else if (Array.isArray(content)) {
+        const textBlock = content.find(b => b.type === 'text');
+        preview = textBlock ? textBlock.text.substring(0, 80) : '[tool content]';
+      } else {
+        preview = '[complex content]';
+      }
+      return `${i + 1}. **${role}**: ${preview}${preview.length >= 80 ? '...' : ''}`;
     }).join('\n');
     send({ type: 'system', text: summary });
   }
@@ -245,6 +319,8 @@ function handleWebSocket(ws) {
         `- **Vim Mode:** ${vimMode ? 'ON' : 'OFF'}`,
         `- **MCP Servers:** ${mcpServers.length > 0 ? mcpServers.map(s => s.name).join(', ') : '(none)'}`,
         `- **API Key:** ${process.env.ANTHROPIC_API_KEY ? '••••' + process.env.ANTHROPIC_API_KEY.slice(-4) : '(not set)'}`,
+        `- **Auto-approve tools:** ${permissions.autoApprove.join(', ')}`,
+        `- **Require approval tools:** ${permissions.requireApproval.join(', ')}`,
       ].join('\n')
     });
   }
@@ -280,37 +356,29 @@ function handleWebSocket(ws) {
     const ok = (msg) => checks.push(`  ✓ ${msg}`);
     const fail = (msg) => checks.push(`  ✗ ${msg}`);
 
-    // API Key
     if (process.env.ANTHROPIC_API_KEY) {
       ok(`API Key configured (••••${process.env.ANTHROPIC_API_KEY.slice(-4)})`);
     } else {
       fail('API Key not set — use `/login` to configure');
     }
 
-    // WebSocket
     if (ws.readyState === 1) {
       ok('WebSocket connected');
     } else {
       fail('WebSocket disconnected');
     }
 
-    // Model
     ok(`Model: ${currentModel}`);
-
-    // Node.js
     ok(`Node.js ${process.version}`);
 
-    // Memory
     const mem = process.memoryUsage();
     const mbUsed = Math.round(mem.heapUsed / 1024 / 1024);
     ok(`Memory usage: ${mbUsed}MB`);
 
-    // Session
     const uptime = Math.round((Date.now() - sessionStart) / 1000);
     ok(`Session uptime: ${formatUptime(uptime)}`);
-
-    // History
     ok(`Conversation: ${conversationHistory.length} messages`);
+    ok(`Tools: ${tools.length} available (${permissions.autoApprove.length} auto-approved)`);
 
     const allPassed = !checks.some(c => c.includes('✗'));
     send({
@@ -445,7 +513,6 @@ function handleWebSocket(ws) {
     const action = parts[1] || '';
 
     if (!tool) {
-      // Show current permissions
       send({
         type: 'system',
         text: [
@@ -493,7 +560,6 @@ function handleWebSocket(ws) {
       send({ type: 'system', text: 'Usage: `/review <pr-number-or-url>`' });
       return;
     }
-    // Forward to Claude as a chat message with review context
     handleChat({
       content: `Please review this pull request: ${args}\n\nProvide a thorough code review covering: code quality, potential bugs, security issues, performance concerns, and suggestions for improvement.`
     });
@@ -514,6 +580,7 @@ function handleWebSocket(ws) {
         `- **Vim Mode:** ${vimMode ? 'ON' : 'OFF'}`,
         `- **MCP Servers:** ${mcpServers.length}`,
         `- **API Key:** ${process.env.ANTHROPIC_API_KEY ? 'Set ✓' : 'Not set ✗'}`,
+        `- **Tools:** ${tools.length} available`,
       ].join('\n')
     });
   }
@@ -565,8 +632,32 @@ function handleWebSocket(ws) {
     return `${h}h ${m % 60}m`;
   }
 
+  /**
+   * Generate a short description for tool display
+   */
+  function toolDescription(name, input) {
+    switch (name) {
+      case 'Read':
+        return input.file_path || '';
+      case 'Write':
+        return input.file_path || '';
+      case 'Edit':
+        return input.file_path || '';
+      case 'Bash':
+        return (input.command || '').substring(0, 100);
+      case 'Glob':
+        return input.pattern || '';
+      case 'Grep':
+        return `"${input.pattern || ''}"` + (input.path ? ` in ${input.path}` : '');
+      case 'LS':
+        return input.path || '.';
+      default:
+        return '';
+    }
+  }
+
   // ========================================
-  // Chat Handler
+  // Chat Handler with Tool Loop
   // ========================================
 
   async function handleChat(msg) {
@@ -584,39 +675,157 @@ function handleWebSocket(ws) {
     abortController = new AbortController();
     const messageId = uuidv4();
 
-    send({ type: 'response_start', messageId });
+    // Build system prompt with tool context
+    const fullSystemPrompt = [
+      systemPrompt || '',
+      'You are Claude, an AI assistant with access to tools for file system operations, bash commands, and code search. Use these tools to help the user with their requests. When you need to read files, write code, run commands, or search for information, use the appropriate tool.',
+      `Current working directory: ${process.env.WORK_DIR || process.cwd()}`,
+    ].filter(Boolean).join('\n\n');
+
+    let isFirstResponse = true;
+    let totalUsage = { inputTokens: 0, outputTokens: 0 };
+    let hasError = false;
 
     try {
-      let fullResponse = '';
-      const usage = { inputTokens: 0, outputTokens: 0 };
+      // Tool loop — keep going until Claude stops using tools
+      let loopCount = 0;
+      const MAX_LOOPS = 25; // Safety limit
 
-      await streamClaude({
-        messages: conversationHistory,
-        model: currentModel,
-        system: systemPrompt,
-        signal: abortController.signal,
-        onText: (text) => {
-          fullResponse += text;
-          send({ type: 'response_delta', messageId, delta: text });
-        },
-        onThinking: (thinking) => {
-          send({ type: 'thinking', messageId, content: thinking });
-        },
-        onUsage: (u) => {
-          usage.inputTokens = u.input_tokens || 0;
-          usage.outputTokens = u.output_tokens || 0;
-        },
-        onError: (err) => {
-          send({ type: 'error', messageId, text: err.message });
+      while (loopCount < MAX_LOOPS) {
+        loopCount++;
+        let fullResponseText = '';
+        let toolUseBlocks = [];
+
+        if (isFirstResponse) {
+          send({ type: 'response_start', messageId });
+          isFirstResponse = false;
         }
-      });
 
-      conversationHistory.push({ role: 'assistant', content: fullResponse });
+        const finalMessage = await streamClaude({
+          messages: conversationHistory,
+          model: currentModel,
+          system: fullSystemPrompt,
+          tools: tools,
+          signal: abortController.signal,
+          onText: (text) => {
+            fullResponseText += text;
+            send({ type: 'response_delta', messageId, delta: text });
+          },
+          onThinking: (thinking) => {
+            send({ type: 'thinking', messageId, content: thinking });
+          },
+          onToolUse: (block) => {
+            toolUseBlocks.push(block);
+            // Notify frontend about tool use
+            send({
+              type: 'tool_use',
+              messageId,
+              toolCallId: block.id,
+              toolName: block.name,
+              description: toolDescription(block.name, block.input),
+              input: block.input
+            });
+          },
+          onUsage: (u) => {
+            totalUsage.inputTokens += u.input_tokens || 0;
+            totalUsage.outputTokens += u.output_tokens || 0;
+          },
+          onError: (err) => {
+            hasError = true;
+            send({ type: 'error', messageId, text: err.message });
+          }
+        });
 
+        if (hasError || !finalMessage) break;
+
+        // Save the assistant response to history (full content blocks)
+        conversationHistory.push({
+          role: 'assistant',
+          content: finalMessage.content
+        });
+
+        // Check if Claude wants to use tools
+        if (finalMessage.stop_reason === 'tool_use' && toolUseBlocks.length > 0) {
+          // Finish text part of the response (if any) before tool execution
+          if (fullResponseText) {
+            send({ type: 'response_pause', messageId });
+          }
+
+          // Execute each tool
+          const toolResults = [];
+
+          for (const toolBlock of toolUseBlocks) {
+            // Check permission
+            const approved = await checkPermission(toolBlock.name, toolBlock.id, toolBlock.input);
+
+            if (!approved) {
+              // User denied
+              send({
+                type: 'tool_result',
+                messageId,
+                toolCallId: toolBlock.id,
+                toolName: toolBlock.name,
+                status: 'denied'
+              });
+
+              toolResults.push({
+                type: 'tool_result',
+                tool_use_id: toolBlock.id,
+                content: 'Tool execution denied by user.',
+                is_error: true
+              });
+              continue;
+            }
+
+            // Execute tool
+            send({
+              type: 'tool_executing',
+              messageId,
+              toolCallId: toolBlock.id,
+              toolName: toolBlock.name
+            });
+
+            const result = await executeTool(toolBlock.name, toolBlock.input);
+
+            // Send result to frontend
+            send({
+              type: 'tool_result',
+              messageId,
+              toolCallId: toolBlock.id,
+              toolName: toolBlock.name,
+              result: result.content.substring(0, 2000), // Truncate for display
+              status: result.isError ? 'error' : 'done'
+            });
+
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: toolBlock.id,
+              content: result.content,
+              is_error: result.isError
+            });
+          }
+
+          // Add tool results to conversation history
+          conversationHistory.push({
+            role: 'user',
+            content: toolResults
+          });
+
+          // Continue the loop — Claude will process tool results
+          // Signal to frontend that Claude is continuing after tools
+          send({ type: 'response_continue', messageId });
+          continue;
+        }
+
+        // stop_reason === 'end_turn' or other — Claude is done
+        break;
+      }
+
+      // Finalize
       send({
         type: 'response_end',
         messageId,
-        usage
+        usage: totalUsage
       });
     } catch (err) {
       if (err.name === 'AbortError') {

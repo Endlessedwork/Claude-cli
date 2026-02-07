@@ -5,6 +5,9 @@
 const Terminal = (() => {
   const outputEl = document.getElementById('output');
 
+  // Track tool blocks by toolCallId
+  const toolBlocks = new Map();
+
   // Scroll to bottom
   function scrollToBottom() {
     requestAnimationFrame(() => {
@@ -18,7 +21,7 @@ const Terminal = (() => {
     block.className = 'message-block user';
     block.innerHTML = `
       <div class="message-header">
-        <span class="role">❯ You</span>
+        <span class="role">&#10095; You</span>
         <span class="timestamp">${formatTime()}</span>
       </div>
       <div class="message-body">${escapeHtml(text)}</div>
@@ -76,7 +79,12 @@ const Terminal = (() => {
           clearTimeout(renderTimer);
           renderTimer = null;
         }
-        body.innerHTML = MarkdownRenderer.render(fullText);
+        if (fullText) {
+          body.innerHTML = MarkdownRenderer.render(fullText);
+        } else {
+          // Remove cursor if no text
+          if (cursor.parentNode) cursor.remove();
+        }
         scrollToBottom();
       },
       getText() {
@@ -115,7 +123,7 @@ const Terminal = (() => {
     const header = document.createElement('div');
     header.className = 'thinking-header';
     header.innerHTML = `
-      <span class="thinking-toggle">▼</span>
+      <span class="thinking-toggle">&#9660;</span>
       <span>Thinking</span>
     `;
 
@@ -139,7 +147,186 @@ const Terminal = (() => {
     return block;
   }
 
-  // Add system message
+  // ========================================
+  // Tool Use Blocks (Stateful)
+  // ========================================
+
+  const TOOL_ICONS = {
+    'Read': '\uD83D\uDCC4',    // file
+    'Write': '\u270F\uFE0F',   // pencil
+    'Edit': '\uD83D\uDD27',    // wrench
+    'Bash': '\u26A1',          // lightning
+    'Glob': '\uD83D\uDD0D',    // magnifier
+    'Grep': '\uD83D\uDD0E',    // magnifier right
+    'LS': '\uD83D\uDCC2',      // folder
+  };
+
+  /**
+   * Add a tool use block when Claude requests a tool.
+   * Returns a reference tracked by toolCallId.
+   */
+  function addToolUseBlock(toolCallId, toolName, description, input) {
+    const block = document.createElement('div');
+    block.className = 'tool-block';
+    block.dataset.toolCallId = toolCallId;
+
+    const icon = TOOL_ICONS[toolName] || '\u2699\uFE0F';
+
+    const header = document.createElement('div');
+    header.className = 'tool-header';
+    header.innerHTML = `
+      <span class="tool-icon">${icon}</span>
+      <span class="tool-name">${escapeHtml(toolName)}</span>
+      <span class="tool-desc">${escapeHtml(description || '')}</span>
+      <span class="tool-status tool-status-pending">pending</span>
+    `;
+
+    const contentEl = document.createElement('div');
+    contentEl.className = 'tool-content collapsed';
+
+    // Show input parameters
+    if (input) {
+      const inputSummary = formatToolInput(toolName, input);
+      contentEl.innerHTML = `<pre><code>${escapeHtml(inputSummary)}</code></pre>`;
+    }
+
+    header.addEventListener('click', () => {
+      contentEl.classList.toggle('collapsed');
+    });
+
+    block.appendChild(header);
+    block.appendChild(contentEl);
+    outputEl.appendChild(block);
+    scrollToBottom();
+
+    // Track it
+    toolBlocks.set(toolCallId, { block, header, contentEl });
+
+    return block;
+  }
+
+  /**
+   * Update tool block status (executing, done, error, denied)
+   */
+  function updateToolBlockStatus(toolCallId, status) {
+    const entry = toolBlocks.get(toolCallId);
+    if (!entry) return;
+
+    const statusEl = entry.header.querySelector('.tool-status');
+    if (!statusEl) return;
+
+    // Remove old status classes
+    statusEl.className = 'tool-status';
+
+    switch (status) {
+      case 'executing':
+        statusEl.className += ' tool-status-executing';
+        statusEl.textContent = 'running...';
+        break;
+      case 'done':
+        statusEl.className += ' tool-status-done';
+        statusEl.textContent = 'done';
+        break;
+      case 'error':
+        statusEl.className += ' tool-status-error';
+        statusEl.textContent = 'error';
+        break;
+      case 'denied':
+        statusEl.className += ' tool-status-denied';
+        statusEl.textContent = 'denied';
+        break;
+      default:
+        statusEl.className += ' tool-status-pending';
+        statusEl.textContent = status;
+    }
+  }
+
+  /**
+   * Update tool block with result content
+   */
+  function updateToolBlockResult(toolCallId, result, isError) {
+    const entry = toolBlocks.get(toolCallId);
+    if (!entry) return;
+
+    const resultEl = document.createElement('div');
+    resultEl.className = 'tool-result';
+
+    if (isError) {
+      resultEl.innerHTML = `<pre class="tool-result-error"><code>${escapeHtml(result)}</code></pre>`;
+    } else {
+      resultEl.innerHTML = `<pre><code>${escapeHtml(result)}</code></pre>`;
+    }
+
+    entry.contentEl.appendChild(resultEl);
+
+    // Auto-expand for errors or short results
+    if (isError || (result && result.length < 500)) {
+      entry.contentEl.classList.remove('collapsed');
+    }
+
+    scrollToBottom();
+  }
+
+  // ========================================
+  // Permission Request UI
+  // ========================================
+
+  function addPermissionRequest(toolCallId, toolName, input, onApprove, onDeny) {
+    const block = document.createElement('div');
+    block.className = 'permission-request';
+    block.dataset.toolCallId = toolCallId;
+
+    const icon = TOOL_ICONS[toolName] || '\u2699\uFE0F';
+    const desc = formatToolInput(toolName, input);
+
+    block.innerHTML = `
+      <div class="permission-header">
+        <span class="permission-icon">\u26A0\uFE0F</span>
+        <span class="permission-title">Permission Required</span>
+      </div>
+      <div class="permission-body">
+        <div class="permission-tool">
+          <span class="tool-icon">${icon}</span>
+          <span class="tool-name">${escapeHtml(toolName)}</span>
+        </div>
+        <pre class="permission-detail"><code>${escapeHtml(desc)}</code></pre>
+      </div>
+      <div class="permission-actions">
+        <button class="btn-approve" title="Allow this tool execution">Allow</button>
+        <button class="btn-deny" title="Deny this tool execution">Deny</button>
+        <button class="btn-always" title="Always allow this tool">Always Allow</button>
+      </div>
+    `;
+
+    const approveBtn = block.querySelector('.btn-approve');
+    const denyBtn = block.querySelector('.btn-deny');
+    const alwaysBtn = block.querySelector('.btn-always');
+
+    approveBtn.addEventListener('click', () => {
+      block.remove();
+      onApprove(false);
+    });
+
+    denyBtn.addEventListener('click', () => {
+      block.remove();
+      onDeny();
+    });
+
+    alwaysBtn.addEventListener('click', () => {
+      block.remove();
+      onApprove(true); // true = always allow
+    });
+
+    outputEl.appendChild(block);
+    scrollToBottom();
+
+    return block;
+  }
+
+  // ========================================
+  // System / Error / Usage Messages
+  // ========================================
+
   function addSystemMessage(text) {
     const block = document.createElement('div');
     block.className = 'message-block system';
@@ -151,19 +338,17 @@ const Terminal = (() => {
     return block;
   }
 
-  // Add error message
   function addErrorMessage(text) {
     const block = document.createElement('div');
     block.className = 'message-block error';
     block.innerHTML = `
-      <div class="message-body">✗ ${escapeHtml(text)}</div>
+      <div class="message-body">\u2717 ${escapeHtml(text)}</div>
     `;
     outputEl.appendChild(block);
     scrollToBottom();
     return block;
   }
 
-  // Add usage bar after response
   function addUsageBar(usage) {
     const bar = document.createElement('div');
     bar.className = 'usage-bar';
@@ -180,60 +365,25 @@ const Terminal = (() => {
     scrollToBottom();
   }
 
-  // Add tool usage block
-  function addToolBlock(name, description, content) {
-    const block = document.createElement('div');
-    block.className = 'tool-block';
-
-    const icons = {
-      'Read': '📄', 'Write': '✏️', 'Edit': '🔧',
-      'Bash': '⚡', 'Glob': '🔍', 'Grep': '🔎',
-      'WebFetch': '🌐', 'Task': '📋'
-    };
-    const icon = icons[name] || '⚙️';
-
-    const header = document.createElement('div');
-    header.className = 'tool-header';
-    header.innerHTML = `
-      <span class="tool-icon">${icon}</span>
-      <span class="tool-name">${escapeHtml(name)}</span>
-      <span class="tool-desc">${escapeHtml(description || '')}</span>
-    `;
-
-    const contentEl = document.createElement('div');
-    contentEl.className = 'tool-content';
-    if (content) {
-      contentEl.innerHTML = `<pre><code>${escapeHtml(content)}</code></pre>`;
-    }
-
-    header.addEventListener('click', () => {
-      contentEl.classList.toggle('collapsed');
-    });
-
-    block.appendChild(header);
-    if (content) {
-      block.appendChild(contentEl);
-    }
-    outputEl.appendChild(block);
-    scrollToBottom();
-    return block;
-  }
-
   // Clear the terminal output
   function clear() {
     outputEl.innerHTML = '';
+    toolBlocks.clear();
   }
 
   // Add an aborted indicator
   function addAbortedMessage() {
     const el = document.createElement('div');
     el.className = 'message-block system';
-    el.innerHTML = `<div class="message-body dim">⏹ Response cancelled.</div>`;
+    el.innerHTML = `<div class="message-body dim">\u23F9 Response cancelled.</div>`;
     outputEl.appendChild(el);
     scrollToBottom();
   }
 
-  // Utility
+  // ========================================
+  // Utilities
+  // ========================================
+
   function formatTime() {
     return new Date().toLocaleTimeString('en-US', {
       hour: '2-digit',
@@ -248,16 +398,40 @@ const Terminal = (() => {
     return str.replace(/[&<>"']/g, c => map[c]);
   }
 
+  function formatToolInput(toolName, input) {
+    switch (toolName) {
+      case 'Read':
+        return input.file_path + (input.offset ? ` (line ${input.offset})` : '');
+      case 'Write':
+        return `${input.file_path}\n${(input.content || '').substring(0, 500)}${(input.content || '').length > 500 ? '\n... [truncated]' : ''}`;
+      case 'Edit':
+        return `${input.file_path}\n- old: ${(input.old_string || '').substring(0, 200)}\n+ new: ${(input.new_string || '').substring(0, 200)}`;
+      case 'Bash':
+        return input.command || '';
+      case 'Glob':
+        return `${input.pattern}${input.path ? ' in ' + input.path : ''}`;
+      case 'Grep':
+        return `"${input.pattern}"${input.path ? ' in ' + input.path : ''}${input.include ? ' (files: ' + input.include + ')' : ''}`;
+      case 'LS':
+        return input.path || '.';
+      default:
+        return JSON.stringify(input, null, 2);
+    }
+  }
+
   return {
     addUserMessage,
     createAssistantMessage,
     showThinking,
     removeThinking,
     addThinkingBlock,
+    addToolUseBlock,
+    updateToolBlockStatus,
+    updateToolBlockResult,
+    addPermissionRequest,
     addSystemMessage,
     addErrorMessage,
     addUsageBar,
-    addToolBlock,
     addAbortedMessage,
     clear,
     scrollToBottom

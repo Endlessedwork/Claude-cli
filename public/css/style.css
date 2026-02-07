@@ -461,6 +461,205 @@ html, body {
   display: none;
 }
 
+.tool-content pre {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.tool-content pre code {
+  color: var(--text-secondary);
+}
+
+/* Tool Status Badges */
+.tool-status {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.tool-status-pending {
+  background: rgba(224, 175, 104, 0.12);
+  color: var(--accent-yellow);
+}
+
+.tool-status-executing {
+  background: rgba(218, 119, 86, 0.12);
+  color: var(--accent-primary);
+  animation: pulse 0.8s ease-in-out infinite;
+}
+
+.tool-status-done {
+  background: rgba(158, 206, 106, 0.12);
+  color: var(--accent-green);
+}
+
+.tool-status-error {
+  background: rgba(247, 118, 142, 0.12);
+  color: var(--accent-red);
+}
+
+.tool-status-denied {
+  background: rgba(247, 118, 142, 0.08);
+  color: var(--text-dim);
+}
+
+/* Tool Result */
+.tool-result {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-color);
+}
+
+.tool-result pre {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  max-height: 300px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.tool-result-error {
+  color: var(--accent-red) !important;
+}
+
+.tool-result-error code {
+  color: var(--accent-red) !important;
+}
+
+/* ========================================
+   Permission Request
+   ======================================== */
+.permission-request {
+  margin: 8px 0;
+  border: 1px solid var(--accent-yellow);
+  border-radius: var(--radius);
+  overflow: hidden;
+  animation: fadeIn 0.15s ease-out;
+  background: rgba(224, 175, 104, 0.04);
+}
+
+.permission-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(224, 175, 104, 0.08);
+  border-bottom: 1px solid rgba(224, 175, 104, 0.15);
+}
+
+.permission-icon {
+  font-size: 14px;
+}
+
+.permission-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--accent-yellow);
+}
+
+.permission-body {
+  padding: 10px 12px;
+}
+
+.permission-tool {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.permission-tool .tool-name {
+  font-weight: 600;
+  color: var(--accent-orange);
+  font-size: 13px;
+}
+
+.permission-detail {
+  margin: 0;
+  padding: 8px 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  line-height: 1.5;
+  max-height: 200px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.permission-detail code {
+  color: var(--text-secondary);
+}
+
+.permission-actions {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid rgba(224, 175, 104, 0.1);
+  background: rgba(224, 175, 104, 0.04);
+}
+
+.btn-approve {
+  padding: 6px 16px;
+  background: var(--accent-green);
+  color: var(--bg-primary);
+  border: none;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.btn-approve:hover {
+  opacity: 0.85;
+}
+
+.btn-deny {
+  padding: 6px 16px;
+  background: transparent;
+  color: var(--accent-red);
+  border: 1px solid var(--accent-red);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-deny:hover {
+  background: rgba(247, 118, 142, 0.1);
+}
+
+.btn-always {
+  padding: 6px 16px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-always:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-green);
+  color: var(--accent-green);
+}
+
 /* ========================================
    Slash Command Dropdown
    ======================================== */

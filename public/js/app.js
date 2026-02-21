@@ -10,7 +10,7 @@ const App = (() => {
   let sessionId = null;
   let commandHistory = [];
   let historyIndex = -1;
-  let totalTokens = { input: 0, output: 0 };
+  let totalTokens = { input: 0, output: 0, cost: 0 };
   let vimEnabled = false;
 
   // DOM Elements
@@ -21,7 +21,10 @@ const App = (() => {
   const statusText = statusIndicator.querySelector('.status-text');
   const modelBadge = document.getElementById('model-badge');
   const tokenCount = document.getElementById('token-count');
+  const workDirBadge = document.getElementById('work-dir-badge');
+  const fileInput = document.getElementById('file-input');
   const apiKeyModal = document.getElementById('api-key-modal');
+  let pendingFiles = []; // Files waiting to be sent with next message
   const apiKeyInput = document.getElementById('api-key-input');
   const saveApiKeyBtn = document.getElementById('save-api-key');
   const cancelApiKeyBtn = document.getElementById('cancel-api-key');
@@ -69,6 +72,8 @@ const App = (() => {
       case 'session':
         sessionId = msg.sessionId;
         modelBadge.textContent = msg.model;
+        if (msg.workDir) workDirBadge.textContent = msg.workDir;
+        if (msg.hasClaudeMd) workDirBadge.title = 'CLAUDE.md loaded — click to change';
         checkApiKey();
         break;
 
@@ -117,6 +122,7 @@ const App = (() => {
           Terminal.addUsageBar(msg.usage);
           totalTokens.input += msg.usage.inputTokens || 0;
           totalTokens.output += msg.usage.outputTokens || 0;
+          totalTokens.cost += msg.usage.cost || 0;
           updateTokenDisplay();
         }
         break;
@@ -160,7 +166,7 @@ const App = (() => {
         // Tool execution completed
         Terminal.updateToolBlockStatus(msg.toolCallId, msg.status);
         if (msg.result) {
-          Terminal.updateToolBlockResult(msg.toolCallId, msg.result, msg.status === 'error');
+          Terminal.updateToolBlockResult(msg.toolCallId, msg.result, msg.status === 'error', msg.toolName);
         }
         break;
 
@@ -232,6 +238,11 @@ const App = (() => {
         showApiKeyModal();
         break;
 
+      case 'work_dir_changed':
+        workDirBadge.textContent = msg.workDir;
+        workDirBadge.title = msg.hasClaudeMd ? 'CLAUDE.md loaded — click to change' : 'Click to change working directory';
+        break;
+
       case 'vim_mode':
         vimEnabled = msg.enabled;
         break;
@@ -243,6 +254,7 @@ const App = (() => {
           `- **Total Input Tokens:** ${totalTokens.input.toLocaleString()}`,
           `- **Total Output Tokens:** ${totalTokens.output.toLocaleString()}`,
           `- **Total Tokens:** ${(totalTokens.input + totalTokens.output).toLocaleString()}`,
+          `- **Estimated Cost:** $${totalTokens.cost.toFixed(4)}`,
         ].join('\n'));
         break;
     }
@@ -282,6 +294,14 @@ const App = (() => {
   });
 
   cancelApiKeyBtn.addEventListener('click', hideApiKeyModal);
+
+  // Working directory selector
+  workDirBadge.addEventListener('click', () => {
+    const newDir = prompt('Enter working directory path:', workDirBadge.textContent);
+    if (newDir && newDir.trim()) {
+      send({ type: 'set_work_dir', path: newDir.trim() });
+    }
+  });
 
   apiKeyInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
@@ -333,11 +353,25 @@ const App = (() => {
     commandHistory.push(text);
     historyIndex = commandHistory.length;
 
-    Terminal.addUserMessage(text);
+    // Show attached files in user message
+    const fileNames = pendingFiles.map(f => `[${f.isImage ? 'Image' : 'File'}: ${f.name}]`).join(' ');
+    Terminal.addUserMessage(text + (fileNames ? '\n' + fileNames : ''));
     Terminal.showThinking();
     setStatus('thinking', 'Thinking');
 
-    send({ type: 'chat', content: text });
+    // Build content with files
+    const chatMsg = { type: 'chat', content: text };
+    if (pendingFiles.length > 0) {
+      chatMsg.files = pendingFiles.map(f => ({
+        name: f.name,
+        type: f.type,
+        data: f.data,
+        isImage: f.isImage
+      }));
+      pendingFiles = [];
+      renderFileAttachments();
+    }
+    send(chatMsg);
     clearInput();
   }
 
@@ -521,6 +555,101 @@ const App = (() => {
       tokenCount.textContent = total + ' tokens';
     }
   }
+
+  // ========================================
+  // File Upload
+  // ========================================
+
+  fileInput.addEventListener('change', (e) => {
+    for (const file of e.target.files) {
+      addFile(file);
+    }
+    fileInput.value = '';
+  });
+
+  function addFile(file) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const isImage = file.type.startsWith('image/');
+      pendingFiles.push({
+        name: file.name,
+        type: file.type,
+        data: reader.result,
+        isImage
+      });
+      renderFileAttachments();
+    };
+    if (file.type.startsWith('image/')) {
+      reader.readAsDataURL(file);
+    } else {
+      reader.readAsText(file);
+    }
+  }
+
+  function renderFileAttachments() {
+    let container = document.querySelector('.file-attachments');
+    if (!container) {
+      container = document.createElement('div');
+      container.className = 'file-attachments';
+      const inputWrapper = document.querySelector('.input-wrapper');
+      inputWrapper.parentNode.insertBefore(container, inputWrapper);
+    }
+    container.innerHTML = pendingFiles.map((f, i) =>
+      `<span class="file-attachment">
+        ${f.isImage ? '\uD83D\uDDBC' : '\uD83D\uDCC4'} ${f.name}
+        <span class="remove-file" data-idx="${i}">\u00D7</span>
+      </span>`
+    ).join('');
+
+    container.querySelectorAll('.remove-file').forEach(el => {
+      el.addEventListener('click', () => {
+        pendingFiles.splice(parseInt(el.dataset.idx), 1);
+        renderFileAttachments();
+      });
+    });
+
+    if (pendingFiles.length === 0 && container.parentNode) {
+      container.remove();
+    }
+  }
+
+  // Drag & drop support
+  let dragCounter = 0;
+  document.addEventListener('dragenter', (e) => {
+    e.preventDefault();
+    dragCounter++;
+    if (dragCounter === 1) {
+      const overlay = document.createElement('div');
+      overlay.className = 'drop-overlay';
+      overlay.id = 'drop-overlay';
+      overlay.innerHTML = '<span class="drop-overlay-text">Drop files here</span>';
+      document.body.appendChild(overlay);
+    }
+  });
+
+  document.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    dragCounter--;
+    if (dragCounter === 0) {
+      const overlay = document.getElementById('drop-overlay');
+      if (overlay) overlay.remove();
+    }
+  });
+
+  document.addEventListener('dragover', (e) => {
+    e.preventDefault();
+  });
+
+  document.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dragCounter = 0;
+    const overlay = document.getElementById('drop-overlay');
+    if (overlay) overlay.remove();
+
+    for (const file of e.dataTransfer.files) {
+      addFile(file);
+    }
+  });
 
   // ========================================
   // Initialize

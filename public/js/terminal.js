@@ -159,6 +159,7 @@ const Terminal = (() => {
     'Glob': '\uD83D\uDD0D',    // magnifier
     'Grep': '\uD83D\uDD0E',    // magnifier right
     'LS': '\uD83D\uDCC2',      // folder
+    'WebFetch': '\uD83C\uDF10', // globe
   };
 
   /**
@@ -244,7 +245,7 @@ const Terminal = (() => {
   /**
    * Update tool block with result content
    */
-  function updateToolBlockResult(toolCallId, result, isError) {
+  function updateToolBlockResult(toolCallId, result, isError, toolName) {
     const entry = toolBlocks.get(toolCallId);
     if (!entry) return;
 
@@ -253,18 +254,34 @@ const Terminal = (() => {
 
     if (isError) {
       resultEl.innerHTML = `<pre class="tool-result-error"><code>${escapeHtml(result)}</code></pre>`;
+    } else if (toolName === 'Edit' && result && result.includes('\n- ') && result.includes('\n+ ')) {
+      // Render diff with colors
+      resultEl.innerHTML = `<pre><code>${renderDiff(result)}</code></pre>`;
     } else {
       resultEl.innerHTML = `<pre><code>${escapeHtml(result)}</code></pre>`;
     }
 
     entry.contentEl.appendChild(resultEl);
 
-    // Auto-expand for errors or short results
-    if (isError || (result && result.length < 500)) {
+    // Auto-expand for errors, diffs, or short results
+    if (isError || toolName === 'Edit' || (result && result.length < 500)) {
       entry.contentEl.classList.remove('collapsed');
     }
 
     scrollToBottom();
+  }
+
+  function renderDiff(text) {
+    return text.split('\n').map(line => {
+      if (line.startsWith('+ ')) {
+        return `<span class="diff-add">${escapeHtml(line)}</span>`;
+      } else if (line.startsWith('- ')) {
+        return `<span class="diff-remove">${escapeHtml(line)}</span>`;
+      } else if (line.startsWith('--- ') || line.startsWith('+++ ')) {
+        return `<span class="diff-header">${escapeHtml(line)}</span>`;
+      }
+      return escapeHtml(line);
+    }).join('\n');
   }
 
   // ========================================
@@ -355,11 +372,12 @@ const Terminal = (() => {
     const inputTokens = usage.inputTokens || 0;
     const outputTokens = usage.outputTokens || 0;
     const total = inputTokens + outputTokens;
+    const cost = usage.cost || 0;
 
     bar.innerHTML = `
-      <span><span class="label">Input:</span> <span class="value">${inputTokens.toLocaleString()}</span></span>
-      <span><span class="label">Output:</span> <span class="value">${outputTokens.toLocaleString()}</span></span>
-      <span><span class="label">Total:</span> <span class="value">${total.toLocaleString()}</span></span>
+      <span><span class="label">In:</span> <span class="value">${inputTokens.toLocaleString()}</span></span>
+      <span><span class="label">Out:</span> <span class="value">${outputTokens.toLocaleString()}</span></span>
+      <span><span class="label">Cost:</span> <span class="value">$${cost.toFixed(4)}</span></span>
     `;
     outputEl.appendChild(bar);
     scrollToBottom();

@@ -1,7 +1,17 @@
+const fs = require('fs');
+const path = require('path');
 const { streamClaude } = require('./api/claude');
 const { tools } = require('./tools/definitions');
 const { executeTool } = require('./tools/executor');
 const { v4: uuidv4 } = require('uuid');
+
+// Model pricing per 1M tokens (USD)
+const MODEL_PRICING = {
+  'claude-opus-4-6':            { input: 15, output: 75 },
+  'claude-sonnet-4-5-20250929': { input: 3, output: 15 },
+  'claude-sonnet-4-20250514':   { input: 3, output: 15 },
+  'claude-haiku-4-5-20251001':  { input: 0.80, output: 4 },
+};
 
 function handleWebSocket(ws) {
   const sessionId = uuidv4();
@@ -12,18 +22,40 @@ function handleWebSocket(ws) {
   let abortController = null;
   let vimMode = false;
   let mcpServers = [];
+  let workDir = process.env.WORK_DIR || process.cwd();
   let permissions = {
-    autoApprove: ['Read', 'Glob', 'Grep', 'LS'],
+    autoApprove: ['Read', 'Glob', 'Grep', 'LS', 'WebFetch'],
     requireApproval: ['Write', 'Edit', 'Bash'],
   };
 
   // Pending permission requests (tool_call_id -> resolve callback)
   let pendingPermissions = new Map();
 
+  // Load CLAUDE.md if it exists in working directory
+  let claudeMdContent = '';
+  function loadClaudeMd() {
+    claudeMdContent = '';
+    const candidates = [
+      path.join(workDir, 'CLAUDE.md'),
+      path.join(workDir, '.claude', 'CLAUDE.md'),
+    ];
+    for (const p of candidates) {
+      try {
+        if (fs.existsSync(p)) {
+          claudeMdContent = fs.readFileSync(p, 'utf-8').trim();
+          break;
+        }
+      } catch {}
+    }
+  }
+  loadClaudeMd();
+
   ws.send(JSON.stringify({
     type: 'session',
     sessionId,
-    model: currentModel
+    model: currentModel,
+    workDir,
+    hasClaudeMd: !!claudeMdContent
   }));
 
   ws.on('message', async (raw) => {
@@ -62,6 +94,16 @@ function handleWebSocket(ws) {
       case 'clear':
         conversationHistory = [];
         send({ type: 'system', text: 'Conversation cleared.' });
+        break;
+      case 'set_work_dir':
+        if (msg.path && fs.existsSync(msg.path)) {
+          workDir = msg.path;
+          loadClaudeMd();
+          send({ type: 'system', text: `Working directory changed to **${workDir}**${claudeMdContent ? ' (CLAUDE.md loaded)' : ''}` });
+          send({ type: 'work_dir_changed', workDir, hasClaudeMd: !!claudeMdContent });
+        } else {
+          send({ type: 'error', text: `Directory not found: ${msg.path}` });
+        }
         break;
     }
   });
@@ -651,6 +693,8 @@ function handleWebSocket(ws) {
         return `"${input.pattern || ''}"` + (input.path ? ` in ${input.path}` : '');
       case 'LS':
         return input.path || '.';
+      case 'WebFetch':
+        return input.url || '';
       default:
         return '';
     }
@@ -669,17 +713,53 @@ function handleWebSocket(ws) {
       return;
     }
 
-    const userContent = msg.content;
+    // Build user content — may include files
+    let userContent;
+    if (msg.files && msg.files.length > 0) {
+      // Multimodal content: text + images/files
+      const contentBlocks = [];
+      // Add text block
+      if (msg.content) {
+        contentBlocks.push({ type: 'text', text: msg.content });
+      }
+      // Add files
+      for (const file of msg.files) {
+        if (file.isImage && file.data.startsWith('data:')) {
+          // Extract base64 from data URL
+          const match = file.data.match(/^data:([^;]+);base64,(.+)$/);
+          if (match) {
+            contentBlocks.push({
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: match[1],
+                data: match[2]
+              }
+            });
+          }
+        } else {
+          // Text file — append as text block
+          contentBlocks.push({
+            type: 'text',
+            text: `[File: ${file.name}]\n${file.data}`
+          });
+        }
+      }
+      userContent = contentBlocks;
+    } else {
+      userContent = msg.content;
+    }
     conversationHistory.push({ role: 'user', content: userContent });
 
     abortController = new AbortController();
     const messageId = uuidv4();
 
-    // Build system prompt with tool context
+    // Build system prompt with tool context + CLAUDE.md
     const fullSystemPrompt = [
-      systemPrompt || '',
       'You are Claude, an AI assistant with access to tools for file system operations, bash commands, and code search. Use these tools to help the user with their requests. When you need to read files, write code, run commands, or search for information, use the appropriate tool.',
-      `Current working directory: ${process.env.WORK_DIR || process.cwd()}`,
+      `Current working directory: ${workDir}`,
+      claudeMdContent ? `# Project Context (from CLAUDE.md)\n${claudeMdContent}` : '',
+      systemPrompt || '',
     ].filter(Boolean).join('\n\n');
 
     let isFirstResponse = true;
@@ -820,10 +900,15 @@ function handleWebSocket(ws) {
       }
 
       // Finalize
+      // Calculate cost
+      const pricing = MODEL_PRICING[currentModel] || { input: 3, output: 15 };
+      const cost = (totalUsage.inputTokens / 1_000_000 * pricing.input)
+                 + (totalUsage.outputTokens / 1_000_000 * pricing.output);
+
       send({
         type: 'response_end',
         messageId,
-        usage: totalUsage
+        usage: { ...totalUsage, cost }
       });
     } catch (err) {
       if (err.name === 'AbortError') {

@@ -109,6 +109,26 @@ html, body {
   border: 1px solid var(--border-color);
 }
 
+.work-dir-badge {
+  background: var(--bg-tertiary);
+  color: var(--text-dim);
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.work-dir-badge:hover {
+  color: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
 .top-bar-right {
   display: flex;
   align-items: center;
@@ -534,6 +554,22 @@ html, body {
   color: var(--accent-red) !important;
 }
 
+/* Diff colors */
+.diff-add {
+  color: var(--accent-green);
+}
+
+.diff-remove {
+  color: var(--accent-red);
+  text-decoration: line-through;
+  opacity: 0.75;
+}
+
+.diff-header {
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
 /* ========================================
    Permission Request
    ======================================== */
@@ -862,6 +898,80 @@ html, body {
 
 #user-input::placeholder {
   color: var(--text-muted);
+}
+
+.file-upload-btn {
+  flex-shrink: 0;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  transition: all 0.15s;
+}
+
+.file-upload-btn:hover {
+  color: var(--accent-primary);
+  background: rgba(218, 119, 86, 0.1);
+}
+
+/* File attachment preview */
+.file-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 0 4px;
+}
+
+.file-attachment {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.file-attachment .remove-file {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.file-attachment .remove-file:hover {
+  color: var(--accent-red);
+}
+
+/* Drag & drop overlay */
+.drop-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(218, 119, 86, 0.08);
+  border: 3px dashed var(--accent-primary);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.drop-overlay-text {
+  background: var(--bg-secondary);
+  color: var(--accent-primary);
+  padding: 16px 32px;
+  border-radius: var(--radius);
+  font-size: 16px;
+  font-weight: 600;
+  border: 1px solid var(--accent-primary);
 }
 
 .send-btn, .abort-btn {

@@ -130,6 +130,20 @@ const tools = [
     }
   },
   {
+    name: 'WebFetch',
+    description: 'Fetch content from a URL and return the text/HTML content. Useful for reading web pages, APIs, and documentation.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        url: {
+          type: 'string',
+          description: 'The URL to fetch content from'
+        }
+      },
+      required: ['url']
+    }
+  },
+  {
     name: 'LS',
     description: 'List files and directories at the given path. Returns names with type indicators (/ for directories).',
     input_schema: {

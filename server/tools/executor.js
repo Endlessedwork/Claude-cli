@@ -32,6 +32,8 @@ async function executeTool(name, input) {
         return await toolGrep(input);
       case 'LS':
         return await toolLS(input);
+      case 'WebFetch':
+        return await toolWebFetch(input);
       default:
         return { content: `Unknown tool: ${name}`, isError: true };
     }
@@ -133,7 +135,19 @@ async function toolEdit({ file_path, old_string, new_string, replace_all }) {
   }
 
   fs.writeFileSync(file_path, content, 'utf-8');
-  return { content: `Successfully edited ${file_path}`, isError: false };
+
+  // Generate diff for display
+  const oldLines = old_string.split('\n');
+  const newLines = new_string.split('\n');
+  let diff = `--- ${file_path}\n+++ ${file_path}\n`;
+  for (const line of oldLines) {
+    diff += `- ${line}\n`;
+  }
+  for (const line of newLines) {
+    diff += `+ ${line}\n`;
+  }
+
+  return { content: `Successfully edited ${file_path}\n\n${diff}`, isError: false, diff };
 }
 
 // ========================================
@@ -348,6 +362,69 @@ async function toolLS({ path: dirPath }) {
   }).join('\n');
 
   return { content: result || '(empty directory)', isError: false };
+}
+
+// ========================================
+// Tool: WebFetch
+// ========================================
+async function toolWebFetch({ url }) {
+  if (!url) {
+    return { content: 'Error: url is required', isError: true };
+  }
+
+  // Upgrade http to https
+  const fetchUrl = url.replace(/^http:\/\//, 'https://');
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+
+    const response = await fetch(fetchUrl, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; ClaudeCLI/1.0)',
+        'Accept': 'text/html,application/json,text/plain,*/*',
+      },
+      redirect: 'follow',
+    });
+
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      return { content: `Error: HTTP ${response.status} ${response.statusText}`, isError: true };
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    let body = await response.text();
+
+    // Truncate if too large
+    if (body.length > 50000) {
+      body = body.substring(0, 50000) + '\n\n... [truncated — content too large]';
+    }
+
+    // Strip HTML tags for a cleaner text extraction
+    if (contentType.includes('text/html')) {
+      // Basic HTML to text — remove tags, decode entities
+      body = body
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+    }
+
+    return { content: `URL: ${fetchUrl}\nContent-Type: ${contentType}\n\n${body}`, isError: false };
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      return { content: `Error: Request timed out after 30s for ${fetchUrl}`, isError: true };
+    }
+    return { content: `Error fetching ${fetchUrl}: ${err.message}`, isError: true };
+  }
 }
 
 module.exports = { executeTool };
